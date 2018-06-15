@@ -23,6 +23,7 @@ char *ROOT;
 struct message{
 	int type;
 	char receiver[10][32]={{0},};
+	int time[10]={0,};
 	char buffer[1000];
 	char Nickname[32];
 	int RoomNum;
@@ -51,6 +52,13 @@ struct clientInfo{
 		IsLast=true;
 	}
 };
+
+struct Reserve{
+	message msg;
+	int time;
+	int slot;
+};
+void ReservedMsg(Reserve );
 void clientInfoReset(clientInfo *);
 void SendtoAll(message* );
 void EditUserInfo(message*, int);
@@ -114,6 +122,7 @@ int main( int argc, char *argv[] ) {
 void respond(int sock) {
 	int n, file;
 	message msg;
+	ThreadPool rsrv(10);
 	while(1){
 		n = recv(sock, &msg, sizeof(message), 0);
 		if (n < 0) {
@@ -172,7 +181,6 @@ void respond(int sock) {
 		}
 
 		else if(msg.type==2){					
-//			if(!strcmp(room[msg.RoomNum-1][msg.UserNum].Nickname, msg.Nickname)){
 				char buffer[200]="There is no such user : ";
 				bool IsMissing=false;
 				for(int j=0; j<10; j++){
@@ -184,7 +192,16 @@ void respond(int sock) {
 							break;
 						if(!strcmp(msg.receiver[j],room[msg.RoomNum-1][k].Nickname)){
 							IsExist=true;
-							write(room[msg.RoomNum-1][k].sock, &msg, sizeof(message));
+							if(msg.time[j]!=0){
+								Reserve R;
+								R.time=msg.time[j];
+								R.msg=msg;
+								R.slot=k;
+								rsrv.enqueue([R]{ReservedMsg(R);});
+							}
+							
+							else
+								write(room[msg.RoomNum-1][k].sock, &msg, sizeof(message));
 							break;
 						}
 					}
@@ -199,7 +216,6 @@ void respond(int sock) {
 					msg.type=1;
 					write(sock, &msg, sizeof(message));
 				}
-		//	}
 		}
 		
 		else if(msg.type==3)
@@ -207,26 +223,16 @@ void respond(int sock) {
 		
 		else if(msg.type==4){
 			int newRoomNum=atoi(msg.buffer);
-
-			printf("Before ExitRoom\n");
-			for (int i = 0; i < 3; i++)
-				printf("%d\n", room[msg.RoomNum-1][i].IsEmpty);
-
 			ExitRoom(&msg, false, 0);
-
-			printf("After ExitRoom\n");
-			for (int i = 0; i < 3; i++)
-				printf("%d\n", room[msg.RoomNum-1][i].IsEmpty);
-
 			msg.RoomNum=newRoomNum;
-
-			printf("Before JoinRoom\n");
-			for (int i = 0; i < 3; i++)
-				printf("%d\n", room[msg.RoomNum-1][i].IsEmpty);
-			
 			JoinRoom(&msg, sock);
 		}	
 	}
+}
+
+void ReservedMsg(Reserve R){
+	sleep(R.time);
+	write(room[R.msg.RoomNum-1][R.slot].sock, &R.msg, sizeof(message));
 }
 
 void SendtoAll(message* msg){

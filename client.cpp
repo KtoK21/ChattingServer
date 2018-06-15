@@ -12,6 +12,7 @@ void* SendMsg(void*);
 struct message{
 	int type;							//1 for initialization, 2 for msg to individuals, 3 for msg to all, 4 for modify clientInfo
 	char receiver[10][32] = {{0},};
+	int time[10]={0,};
 	char buffer[1000];
 	char Nickname[32];
 	int RoomNum;
@@ -174,14 +175,27 @@ void* SendMsg(void* msg) {
 						printf("Username shoud be shorter than 32 char\n");
 						break;
 					}
+
 					strcpy(send_msg.receiver[i], token);
 					i++;
+					if(i>9){
+						printf("Maximum N of receivers : 10\n");
+						continue;
+					}
 					strcpy(token,strtok(NULL, " ,"));
 					if(!strcmp(token, ":"))
 						break;
 				}
 				if(!IsValid)
 					continue;
+
+				for(int i=0; i<10; i++){
+					if(char* tmpT = strchr(send_msg.receiver[i], '#')){
+						tmpT++;
+						send_msg.time[i]=atoi(tmpT);
+						send_msg.receiver[i][tmpT-send_msg.receiver[i]-1]='\0';
+					}
+				}
 				strcpy(send_msg.buffer, strtok(NULL,"\n"));
 				if(!strcmp(send_msg.receiver[0], "All"))
 					send_msg.type=3;
