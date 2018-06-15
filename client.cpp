@@ -114,7 +114,7 @@ while (1) {
 			pthread_cancel(thread);
 			break;
 		}
-		if((recv_msg.type==4 || (recv_msg.type==1 && strcmp(recv_msg.Nickname, argv[2])))){
+		if((recv_msg.type==4 || (recv_msg.type==1 && !strcmp(recv_msg.Nickname, send_msg.Nickname)))){
 			printf("%s\n", recv_msg.buffer); 
 			if(!strcmp(recv_msg.Nickname, send_msg.Nickname))
 				UserNum=recv_msg.UserNum;
@@ -135,10 +135,8 @@ void* SendMsg(void* msg) {
 	char *result;
 	char tmpBuf[1000]={0};
 	message send_msg =*(message*)msg;
-	
 	while (1) {	
 		result = fgets(tmpBuf, 1000, stdin);
-		send_msg.UserNum=UserNum;
 		if(!strcmp(result, "/quit\n")){
 			send_msg.type=1;
 			send(sockfd, &send_msg, sizeof(send_msg),0);
@@ -148,6 +146,7 @@ void* SendMsg(void* msg) {
 	
 		else if(!strcmp(result, "/list\n")){
 			send_msg.type=1;
+			strcpy(send_msg.buffer,result);
 			send(sockfd, &send_msg, sizeof(send_msg),0);
 			continue;
 		}
@@ -161,6 +160,10 @@ void* SendMsg(void* msg) {
 			if(!strcmp(token, "/join")){
 				send_msg.type=4;
 				int newRoomNum=atoi((strtok(NULL, "\n")));
+				if(newRoomNum==send_msg.RoomNum){
+					printf("You are already in Room#%d\n",newRoomNum);
+					continue;
+				}
 				sprintf(send_msg.buffer,"%d",newRoomNum);
 				send(sockfd, &send_msg, sizeof(send_msg),0);
 				send_msg.RoomNum=newRoomNum;
@@ -200,8 +203,10 @@ void* SendMsg(void* msg) {
 				if(!strcmp(send_msg.receiver[0], "All"))
 					send_msg.type=3;
 				send(sockfd, &send_msg, sizeof(send_msg), 0);
-				for(int i=0; i<10; i++)
+				for(int i=0; i<10; i++){
 					memset(send_msg.receiver[i],0,32);
+					send_msg.time[i]=0;
+				}
 			}
 		}
 	

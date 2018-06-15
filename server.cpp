@@ -13,7 +13,7 @@
 #include <sys/sendfile.h>
 #include <sys/types.h>
 #include <pthread.h>
-#include "./threadpool/ThreadPool.h"
+#include "./ThreadPool.h"
 
 #define PORT 5000
 
@@ -218,8 +218,16 @@ void respond(int sock) {
 				}
 		}
 		
-		else if(msg.type==3)
-			SendtoAll(&msg);
+		else if(msg.type==3){
+			if(msg.time[0]!=0){
+				Reserve R;
+				R.time=msg.time[0];
+				R.msg=msg;
+				rsrv.enqueue([R]{ReservedMsg(R);});
+			}
+			else
+				SendtoAll(&msg);
+		}
 		
 		else if(msg.type==4){
 			int newRoomNum=atoi(msg.buffer);
@@ -232,7 +240,10 @@ void respond(int sock) {
 
 void ReservedMsg(Reserve R){
 	sleep(R.time);
-	write(room[R.msg.RoomNum-1][R.slot].sock, &R.msg, sizeof(message));
+	if(R.msg.type==3)
+		SendtoAll(&R.msg);
+	else
+		write(room[R.msg.RoomNum-1][R.slot].sock, &R.msg, sizeof(message));
 }
 
 void SendtoAll(message* msg){
@@ -287,7 +298,6 @@ void JoinRoom(message* msg, int sock){
 	write(sock, msg, sizeof(message));
 	sprintf(msg->buffer, "%s joined room %d", msg->Nickname, msg->RoomNum);
 	SendtoAll(msg);
-	printf("%s at room %d, slot %d\n", msg->Nickname, msg->RoomNum ,msg->UserNum);
 }
 
 void clientInfoReset(clientInfo* client){
