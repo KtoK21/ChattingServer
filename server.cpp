@@ -136,6 +136,27 @@ void respond(int sock) {
 				close(sock);
 				return;
 			}
+			
+			else if(!strcmp(msg.buffer, "/list\n")){
+				int count=1;
+				sprintf(msg.buffer, "This is list of users in room #%d\n", msg.RoomNum);
+				for(int i=0; i<100; i++){
+					if(room[msg.RoomNum-1][i].IsLast)
+						break;
+
+					else if(!(room[msg.RoomNum-1][i].IsEmpty)){
+						char next[1000];
+						sprintf(next, "%d. %s\n", count, room[msg.RoomNum-1][i].Nickname);
+						if(!strcmp(room[msg.RoomNum-1][i].Nickname, msg.Nickname))
+							sprintf(next, "%d. %s*\n", count, room[msg.RoomNum-1][i].Nickname);
+						sprintf(msg.buffer, "%s%s", msg.buffer, next);
+						count++;
+					}
+				}
+				msg.buffer[strlen(msg.buffer)-1]='\0';
+				write(sock, &msg, sizeof(message));
+				continue;
+			}
 
 			int NumEqualName=1;
 			for(int i=0; i<10; i++)
@@ -186,8 +207,23 @@ void respond(int sock) {
 		
 		else if(msg.type==4){
 			int newRoomNum=atoi(msg.buffer);
+
+			printf("Before ExitRoom\n");
+			for (int i = 0; i < 3; i++)
+				printf("%d\n", room[msg.RoomNum-1][i].IsEmpty);
+
 			ExitRoom(&msg, false, 0);
+
+			printf("After ExitRoom\n");
+			for (int i = 0; i < 3; i++)
+				printf("%d\n", room[msg.RoomNum-1][i].IsEmpty);
+
 			msg.RoomNum=newRoomNum;
+
+			printf("Before JoinRoom\n");
+			for (int i = 0; i < 3; i++)
+				printf("%d\n", room[msg.RoomNum-1][i].IsEmpty);
+			
 			JoinRoom(&msg, sock);
 		}	
 	}
@@ -245,6 +281,7 @@ void JoinRoom(message* msg, int sock){
 	write(sock, msg, sizeof(message));
 	sprintf(msg->buffer, "%s joined room %d", msg->Nickname, msg->RoomNum);
 	SendtoAll(msg);
+	printf("%s at room %d, slot %d\n", msg->Nickname, msg->RoomNum ,msg->UserNum);
 }
 
 void clientInfoReset(clientInfo* client){

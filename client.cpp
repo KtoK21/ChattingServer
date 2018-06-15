@@ -70,8 +70,6 @@ int main( int argc, char *argv[] ) {
 		perror("ERROR connect fail");
 		return -1;
 	}
-	
-	printf("Successfully connected\n");
 
 //-------------------------Connect to Server Done---------------------------
 
@@ -80,6 +78,12 @@ int main( int argc, char *argv[] ) {
 	memset(send_msg.buffer,0,1000);
 	send_msg.RoomNum=atoi(argv[2]);
 	send_msg.sock=sockfd;		
+	recv_msg.type=1;
+	strcpy(recv_msg.Nickname,argv[3]);
+	memset(recv_msg.buffer, 0, 1000);
+	recv_msg.RoomNum=atoi(argv[2]);
+	send_msg.sock=sockfd;
+	
 	int test=send(sockfd, (char*)&send_msg, sizeof(message),0);
 
 //-------------------------Send userInfo------------------------------------
@@ -98,7 +102,7 @@ int main( int argc, char *argv[] ) {
 	pthread_t thread;
 	pthread_create(&thread, NULL, SendMsg, (void*)&send_msg);
 //------------------------MultiThread for keyboard input--------------------
-	while (1) {
+while (1) {
 		int n=recv(sockfd, &recv_msg, sizeof(message), 0);
 		if(n<0){
 			printf("recv() error\n");
@@ -111,7 +115,8 @@ int main( int argc, char *argv[] ) {
 		}
 		if((recv_msg.type==4 || (recv_msg.type==1 && strcmp(recv_msg.Nickname, argv[2])))){
 			printf("%s\n", recv_msg.buffer); 
-			UserNum=recv_msg.UserNum;
+			if(!strcmp(recv_msg.Nickname, send_msg.Nickname))
+				UserNum=recv_msg.UserNum;
 		}
 		else
 			printf("%s : %s\n",recv_msg.Nickname, recv_msg.buffer);
@@ -127,10 +132,11 @@ int main( int argc, char *argv[] ) {
 
 void* SendMsg(void* msg) {
 	char *result;
+	char tmpBuf[1000]={0};
 	message send_msg =*(message*)msg;
 	
 	while (1) {	
-		result = fgets(send_msg.buffer, 1000, stdin);
+		result = fgets(tmpBuf, 1000, stdin);
 		send_msg.UserNum=UserNum;
 		if(!strcmp(result, "/quit\n")){
 			send_msg.type=1;
@@ -138,13 +144,19 @@ void* SendMsg(void* msg) {
 			IsThreadDone=true;
 			return msg;
 		}
-		
+	
+		else if(!strcmp(result, "/list\n")){
+			send_msg.type=1;
+			send(sockfd, &send_msg, sizeof(send_msg),0);
+			continue;
+		}
+
 		else{
-			if(strchr(send_msg.buffer, '/')==NULL && strstr(send_msg.buffer, " : ")==NULL){
+			if(strchr(tmpBuf, '/')==NULL && strstr(tmpBuf, " : ")==NULL){
 				printf("Usage: Receiver1, Receiver2 : Message\n");
 				continue;
 			}
-			char* token=strtok(send_msg.buffer, " ,"); 
+			char* token=strtok(tmpBuf, " ,"); 
 			if(!strcmp(token, "/join")){
 				send_msg.type=4;
 				int newRoomNum=atoi((strtok(NULL, "\n")));
