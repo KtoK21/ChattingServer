@@ -13,7 +13,7 @@
 #include <sys/sendfile.h>
 #include <sys/types.h>
 #include <pthread.h>
-#include "./ThreadPool.h"
+#include "./threadpool/ThreadPool.h"
 
 #define PORT 5000
 
@@ -51,8 +51,11 @@ struct clientInfo{
 		IsLast=true;
 	}
 };
-void SendtoAll(message );
+void clientInfoReset(clientInfo *);
+void SendtoAll(message* );
 void EditUserInfo(message*, int);
+void JoinRoom(message*, int );
+void ExitRoom(message* , bool , int );
 clientInfo room[10][100];		//[i][j] ith room,jth client with name
 
 int main( int argc, char *argv[] ) {
@@ -116,87 +119,89 @@ void respond(int sock) {
 		if (n < 0) {
 			printf("recv() error\n");
 			return;
-		} else if (n == 0) {
+		} 
+		else if (n == 0) {
 			printf("Client disconnected unexpectedly\n");
-			for(int i=0; i<10; i++)
-				for(int j=0; j<100; j++)
-					if(room[i][j].sock==sock){
-						sprintf(msg.buffer, "%s is disconnected from room #%d",msg.Nickname, msg.RoomNum);
-						SendtoAll(msg);
-						room[i][j]=clientInfo();
-						if(!room[i][j+1].IsLast)
-							room[i][j].IsLast=false;
-						shutdown(sock, SHUT_RDWR);
-						close(sock);
-						break;
-					}
+			ExitRoom(&msg, true, sock);
+			shutdown(sock, SHUT_RDWR);
+			close(sock);
 			return;
 		}
 		if(msg.type==1){
 			if(!strcmp(msg.buffer, "/quit\n")){
 				sprintf(msg.buffer, "Good bye %s",msg.Nickname);
 				write(sock, &msg, sizeof(message));
-				sprintf(msg.buffer, "%s is disconnected from room #%d",msg.Nickname, msg.RoomNum);
-				SendtoAll(msg);
-				room[msg.RoomNum-1][msg.UserNum]=clientInfo();
+				ExitRoom(&msg, false, 0);
 				shutdown(sock, SHUT_RDWR);
 				close(sock);
 				return;
 			}
-			
-			EditUserInfo(&msg, sock);			
-			sprintf(msg.buffer, "%s%s%s%d", "Hello ", msg.Nickname, "! This is room #",msg.RoomNum);
-			write(sock, &msg, sizeof(message));
-			sprintf(msg.buffer, "%s joined room %d", msg.Nickname, msg.RoomNum);
-			SendtoAll(msg);
+
+			int NumEqualName=1;
+			for(int i=0; i<10; i++)
+				for(int j=0; j<100; j++)
+					if(room[i][j].IsLast)
+						break;
+					else if(!strcmp(msg.Nickname, room[i][j].Nickname)){
+						NumEqualName++;
+						char* tmpNick=strtok(msg.Nickname,"-");
+						sprintf(msg.Nickname,"%s-%d",tmpNick,NumEqualName);
+					}
+			JoinRoom(&msg, sock);
 		}
 
-		else{																							//send message to others
-			if(msg.type==3)																				//send meesage to all
-				SendtoAll(msg);				
-			else{					
-					//send meesage to selectivly
-					if(!(strcmp(room[msg.RoomNum-1][msg.UserNum].Nickname, msg.Nickname))){					//Found sender's info
-						char buffer[200]="There is no such user : ";
-						bool IsMissing=false;
-						for(int j=0; j<10; j++){
-							if(!strlen(msg.receiver[j]))
-								break;
-							bool IsExist=false;
-							for(int k=0; k<100; k++){													//Is receiver exist?
-								if(room[msg.RoomNum-1][k].IsLast)
-									break;
-								if(!strcmp(msg.receiver[j],room[msg.RoomNum-1][k].Nickname)){
-									IsExist=true;
-									printf("send to %s\n",msg.receiver[j]);
-									write(room[msg.RoomNum-1][k].sock, &msg, sizeof(message));
-									break;
-								}
-							}
-							if(!IsExist){
-								IsMissing=true;
-							sprintf(buffer, "%s%s, ",buffer, msg.receiver[j]);
-							}
+		else if(msg.type==2){					
+//			if(!strcmp(room[msg.RoomNum-1][msg.UserNum].Nickname, msg.Nickname)){
+				char buffer[200]="There is no such user : ";
+				bool IsMissing=false;
+				for(int j=0; j<10; j++){
+					if(!strlen(msg.receiver[j]))
+						break;
+					bool IsExist=false;
+					for(int k=0; k<100; k++){													//Is receiver exist?
+						if(room[msg.RoomNum-1][k].IsLast)
+							break;
+						if(!strcmp(msg.receiver[j],room[msg.RoomNum-1][k].Nickname)){
+							IsExist=true;
+							write(room[msg.RoomNum-1][k].sock, &msg, sizeof(message));
+							break;
 						}
-						if(IsMissing){
-							buffer[strlen(buffer)-2]='\0';
-							sprintf(msg.buffer,"%s", buffer);
-							msg.type=1;
-							write(sock, &msg, sizeof(message));
-						}
+					}
+					if(!IsExist){
+						IsMissing=true;
+						sprintf(buffer, "%s%s, ",buffer, msg.receiver[j]);
+					}
 				}
-			}
+				if(IsMissing){
+					buffer[strlen(buffer)-2]='\0';
+					sprintf(msg.buffer,"%s", buffer);
+					msg.type=1;
+					write(sock, &msg, sizeof(message));
+				}
+		//	}
 		}
+		
+		else if(msg.type==3)
+			SendtoAll(&msg);
+		
+		else if(msg.type==4){
+			int newRoomNum=atoi(msg.buffer);
+			ExitRoom(&msg, false, 0);
+			msg.RoomNum=newRoomNum;
+			JoinRoom(&msg, sock);
+		}	
 	}
-}	
+}
 
-
-void SendtoAll(message msg){
+void SendtoAll(message* msg){
 	for(int i=0; i<100; i++)
-		if(!room[msg.RoomNum-1][i].IsEmpty){
-			if(strcmp(room[msg.RoomNum-1][i].Nickname, msg.Nickname))
-				write(room[msg.RoomNum-1][i].sock, &msg, sizeof(message));
+		if(!room[msg->RoomNum-1][i].IsEmpty){
+			if(strcmp(room[msg->RoomNum-1][i].Nickname, msg->Nickname))
+				write(room[msg->RoomNum-1][i].sock, msg, sizeof(message));
 		}
+		else
+			if(room[msg->RoomNum-1][i].IsLast)
+				break;
 	return;
 }	
 
@@ -210,4 +215,41 @@ void EditUserInfo(message* msg, int sock){
 			msg->UserNum=i;
 			break;
 		}
+}
+
+void ExitRoom(message* msg, bool isException, int sock){
+	if(isException){
+		for(int i=0; i<10; i++){
+			bool IsDone=false;
+			for(int j=0; j<100; j++)
+				if(room[i][j].sock==sock){
+					msg->RoomNum=i+1;
+					msg->UserNum=j;
+					IsDone=true;
+					break;
+				}
+			if(IsDone)
+				break;
+		}
+	}
+	sprintf(msg->buffer, "%s is disconnected from room #%d",msg->Nickname, msg->RoomNum);
+	SendtoAll(msg);
+	clientInfoReset(&room[msg->RoomNum-1][msg->UserNum]);
+	if(!room[msg->RoomNum-1][msg->UserNum+1].IsLast)
+		room[msg->RoomNum-1][msg->UserNum].IsLast=false;
+}
+
+void JoinRoom(message* msg, int sock){
+	EditUserInfo(msg, sock);			
+	sprintf(msg->buffer, "%s%s%s%d", "Hello ", msg->Nickname, "! This is room #",msg->RoomNum);
+	write(sock, msg, sizeof(message));
+	sprintf(msg->buffer, "%s joined room %d", msg->Nickname, msg->RoomNum);
+	SendtoAll(msg);
+}
+
+void clientInfoReset(clientInfo* client){
+	client->sock=0;
+	memset(client->Nickname, 0, 32);
+	client->IsEmpty=true;
+	client->IsLast=true;
 }
