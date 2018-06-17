@@ -10,8 +10,9 @@
 void* SendMsg(void*);
 
 struct message{
-	int type;							//1 for initialization, 2 for msg to individuals, 3 for msg to all
+	int type;							//1 for initialization, 2 for msg to individuals, 3 for msg to all, 4 for modify clientInfo
 	char receiver[10][32] = {{0},};
+	int time[10]={0,};
 	char buffer[1000];
 	char Nickname[32];
 	int RoomNum;
@@ -29,6 +30,7 @@ struct message{
 };
 
 int sockfd;
+int UserNum;
 bool IsThreadDone=false;
 int main( int argc, char *argv[] ) {
 	char *ip_addr, *portno;
@@ -69,8 +71,6 @@ int main( int argc, char *argv[] ) {
 		perror("ERROR connect fail");
 		return -1;
 	}
-	
-	printf("Successfully connected\n");
 
 //-------------------------Connect to Server Done---------------------------
 
@@ -79,24 +79,32 @@ int main( int argc, char *argv[] ) {
 	memset(send_msg.buffer,0,1000);
 	send_msg.RoomNum=atoi(argv[2]);
 	send_msg.sock=sockfd;		
+	recv_msg.type=1;
+	strcpy(recv_msg.Nickname,argv[3]);
+	memset(recv_msg.buffer, 0, 1000);
+	recv_msg.RoomNum=atoi(argv[2]);
+	send_msg.sock=sockfd;
+	
 	int test=send(sockfd, (char*)&send_msg, sizeof(message),0);
 
 //-------------------------Send userInfo------------------------------------
 	int length = recv(sockfd, &recv_msg, sizeof(message), 0);
 	char tmp[300];
-	sprintf(tmp, "%s%s%s%s","Hello ",argv[2],"! This is room #",(char*)argv[3]);
+	sprintf(tmp, "%s%s%s%s","Hello ",recv_msg.Nickname,"! This is room #",(char*)argv[3]);
 	
 	if(recv_msg.type==1 && !strcmp(recv_msg.buffer, tmp)){
 		perror("ERROR fail to get in room");
 		return -1;
 	}
+	strcpy(send_msg.Nickname, recv_msg.Nickname);
+	UserNum=recv_msg.UserNum;
 	send_msg.UserNum=recv_msg.UserNum;
 	printf("%s\n", recv_msg.buffer);
 //------------------------Successfully exchange UserInfo--------------------
 	pthread_t thread;
 	pthread_create(&thread, NULL, SendMsg, (void*)&send_msg);
 //------------------------MultiThread for keyboard input--------------------
-	while (1) {
+while (1) {
 		int n=recv(sockfd, &recv_msg, sizeof(message), 0);
 		if(n<0){
 			printf("recv() error\n");
@@ -104,10 +112,13 @@ int main( int argc, char *argv[] ) {
 		}
 		else if(n==0){
 			printf("Server disconnected unexpectedly\n");
+			pthread_cancel(thread);
 			break;
 		}
-		if(recv_msg.type==1 && strcmp(recv_msg.Nickname, argv[2])){
+		if((recv_msg.type==4 || (recv_msg.type==1 && !strcmp(recv_msg.Nickname, send_msg.Nickname)))){
 			printf("%s\n", recv_msg.buffer); 
+			if(!strcmp(recv_msg.Nickname, send_msg.Nickname))
+				UserNum=recv_msg.UserNum;
 		}
 		else
 			printf("%s : %s\n",recv_msg.Nickname, recv_msg.buffer);
@@ -123,39 +134,85 @@ int main( int argc, char *argv[] ) {
 
 void* SendMsg(void* msg) {
 	char *result;
+	char tmpBuf[1000]={0};
 	message send_msg =*(message*)msg;
 	while (1) {
-	
-		result = fgets(send_msg.buffer, 1000, stdin);
-		if(!strcmp(send_msg.buffer, "/quit\n")){
+		send_msg.UserNum=UserNum;
+		result = fgets(tmpBuf, 1000, stdin);
+		if(!strcmp(result, "/quit\n")){
 			send_msg.type=1;
+			strcpy(send_msg.buffer, result);
 			send(sockfd, &send_msg, sizeof(send_msg),0);
 			IsThreadDone=true;
 			return msg;
 		}
-		char* token=strtok(send_msg.buffer, " ,"); 
-		send_msg.type=2;
-		int i=0;
-		bool IsValid=true;
-		while(token!=NULL){
-			if(strlen(token)>32){
-				IsValid=false;
-				printf("Username shoud be shorter than 32 char\n");
-				break;
-			}
-				strcpy(send_msg.receiver[i], token);
-			i++;
-			token=strtok(NULL, " ,");
-			if(!strcmp(token, ":"))
-				break;
-		}										//parsing receiver list
-		if(!IsValid)
+	
+		else if(!strcmp(result, "/list\n")){
+			send_msg.type=1;
+			strcpy(send_msg.buffer,result);
+			send(sockfd, &send_msg, sizeof(send_msg),0);
 			continue;
-		strcpy(send_msg.buffer, strtok(NULL,""));
-		send_msg.buffer[strlen(send_msg.buffer)-1]='\0';
+		}
 
-		if(!strcmp(send_msg.receiver[0], "All"))
-			send_msg.type=3;
-		send(sockfd, &send_msg, sizeof(send_msg), 0);
+		else{
+			if(strchr(tmpBuf, '/')==NULL && strstr(tmpBuf, " : ")==NULL){
+				printf("Usage: Receiver1, Receiver2 : Message\n");
+				continue;
+			}
+			char* token=strtok(tmpBuf, " ,"); 
+			if(!strcmp(token, "/join")){
+				printf("UserNum : %d\n",send_msg.UserNum);
+				send_msg.type=4;
+				int newRoomNum=atoi((strtok(NULL, "\n")));
+				if(newRoomNum==send_msg.RoomNum){
+					printf("You are already in Room#%d\n",newRoomNum);
+					continue;
+				}
+				sprintf(send_msg.buffer,"%d",newRoomNum);
+				send(sockfd, &send_msg, sizeof(send_msg),0);
+				send_msg.RoomNum=newRoomNum;
+			}
+			else{
+				send_msg.type=2;
+				int i=0;
+				bool IsValid=true;
+				while(token!=NULL){
+					if(strlen(token)>32){
+						IsValid=false;
+						printf("Username shoud be shorter than 32 char\n");
+						break;
+					}
+
+					strcpy(send_msg.receiver[i], token);
+					i++;
+					if(i>9){
+						printf("Maximum N of receivers : 10\n");
+						continue;
+					}
+					strcpy(token,strtok(NULL, " ,"));
+					if(!strcmp(token, ":"))
+						break;
+				}
+				if(!IsValid)
+					continue;
+
+				for(int i=0; i<10; i++){
+					if(char* tmpT = strchr(send_msg.receiver[i], '#')){
+						tmpT++;
+						send_msg.time[i]=atoi(tmpT);
+						send_msg.receiver[i][tmpT-send_msg.receiver[i]-1]='\0';
+					}
+				}
+				strcpy(send_msg.buffer, strtok(NULL,"\n"));
+				if(!strcmp(send_msg.receiver[0], "All"))
+					send_msg.type=3;
+				send(sockfd, &send_msg, sizeof(send_msg), 0);
+				for(int i=0; i<10; i++){
+					memset(send_msg.receiver[i],0,32);
+					send_msg.time[i]=0;
+				}
+			}
+		}
+	
 	}
 }
